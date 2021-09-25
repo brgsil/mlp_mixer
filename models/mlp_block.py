@@ -23,13 +23,13 @@ class MLPBlock(nn.Module):
 
 class Mixer(nn.Module):
 
-    def __init__(self, channels, torch):
+    def __init__(self, channels, tokens):
         super(Mixer, self).__init__()
 
         self.norm1 = nn.LayerNorm(channels)
         self.mlp1 = MLPBlock(tokens)
         self.norm2 = nn.LayerNorm(channels)
-        self.mlp2 = MLPBlock(tokens)
+        self.mlp2 = MLPBlock(channels)
         
     def forward(self, x):
         y = self.norm1(x)
@@ -47,7 +47,46 @@ class Mixer(nn.Module):
 
 class MLPMixer(nn.Module):
 
-    def __init__(self, channels, tokens):
-        super(MLMixer, self).__init__()
+    def __init__(self, image_size, in_channels, patch_size, channels,  num_mlp):
+        super(MLPMixer, self).__init__()
 
+        self.l = int(image_size / patch_size)
+        self.image_size = image_size
+        self.channels = channels
+        self.in_channels = in_channels
+        self.tokens = int(image_size*image_size / (patch_size * patch_size))
+        self.embed = nn.Conv2d(in_channels, channels, patch_size, stride=patch_size)
+
+        self.mlp_layers = nn.ModuleList([
+                Mixer(channels, self.tokens) for _ in range(num_mlp)
+            ])
         
+        self.desembed = nn.Conv2d(channels, in_channels * patch_size * patch_size, 1)  
+        
+
+    def forward(self, x):
+        batch = x.shape[0]
+
+        y = self.embed(x)
+
+        y = y.reshape(batch, self.channels, self.tokens)
+        y = y.transpose(1,2)
+        k=1
+        for mixer in self.mlp_layers:
+            print(f'Layer{k}')
+            y = mixer(y)
+            k+=1
+
+        y = y.transpose(1,2)
+        y = y.reshape(batch, self.channels, self.l, self.l)
+
+        y = self.desembed(y)
+
+        y = y.reshape(batch, y.shape[1], self.tokens).transpose(1,2).reshape(batch, self.in_channels, self.image_size, self.image_size)
+
+        return y
+
+
+
+
+
